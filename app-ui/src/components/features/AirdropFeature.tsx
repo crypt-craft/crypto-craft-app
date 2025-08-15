@@ -14,10 +14,11 @@ import {
   Copy,
   ExternalLink
 } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
 import { useNetwork } from '@/components/navbar/networkContext';
-import { useWallet } from '@solana/wallet-adapter-react';
+import { useConnection } from '@solana/wallet-adapter-react';
+import { usePhantomWallet } from '@/hooks/usePhantom';
 import * as web3 from '@solana/web3.js';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -38,9 +39,13 @@ export function AirdropFeature({ blockchain }: AirdropFeatureProps) {
   const [txId, setTxId] = useState('');
   const [enableDevnetFaucet, setEnableDevnetFaucet] = useState(false);
   const [devnetSolAmount, setDevnetSolAmount] = useState<string>('1');
+  const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
+  const [newBalanceLamports, setNewBalanceLamports] = useState<number | null>(null);
 
   const { network } = useNetwork();
-  const { publicKey } = useWallet();
+  const { connection } = useConnection();
+  const { address, connected } = usePhantomWallet();
+  const publicKey = useMemo(() => (address ? new web3.PublicKey(address) : null), [address]);
 
   // Update recipients array when recipientText changes
   useEffect(() => {
@@ -91,18 +96,33 @@ export function AirdropFeature({ blockchain }: AirdropFeatureProps) {
   // Devnet SOL faucet handler (visible only when network === 'devnet' and checkbox enabled)
   const handleRequestDevnetAirdrop = async () => {
     try {
-      if (network !== 'devnet') return;
-      if (!publicKey) return;
-      const pubkey = publicKey;
-      const isLocal = typeof window !== 'undefined' ? (window.location.hostname.endsWith('.local') || window.location.hostname === 'localhost') : import.meta.env.DEV
-      const connection = new web3.Connection(isLocal ? web3.clusterApiUrl('devnet') : web3.clusterApiUrl('mainnet-beta'), 'confirmed');
+      if (network !== 'devnet') {
+        toast.error('Airdrop available only on Devnet');
+        return;
+      }
+      if (!publicKey) {
+        toast.error('Wallet not connected');
+        return;
+      }
+      if (!connection) {
+        toast.error('No connection');
+        return;
+      }
       const lamports = Math.max(0, Math.floor(parseFloat(devnetSolAmount || '0') * web3.LAMPORTS_PER_SOL));
-      const sig = await connection.requestAirdrop(pubkey, lamports);
-      await connection.confirmTransaction(sig, 'confirmed');
-      setTxId(sig);
+      const signature = await connection.requestAirdrop(publicKey, lamports);
+      await connection.confirmTransaction(signature, 'confirmed');
+      setTxId(signature);
       setIsSuccess(true);
-    } catch (e) {
-      // noop; UI remains unchanged on failure
+      toast.success('Devnet airdrop successful');
+      setCooldownUntil(Date.now() + 60_000);
+    } catch (e: any) {
+      const msg = String(e?.message || e || 'Airdrop failed');
+      if (msg.toLowerCase().includes('429') || msg.toLowerCase().includes('rate')) {
+        toast.error('Airdrop rate limited. Try again later.');
+        setCooldownUntil(Date.now() + 5 * 60_000);
+      } else {
+        toast.error(msg);
+      }
     }
   };
 
@@ -125,7 +145,7 @@ export function AirdropFeature({ blockchain }: AirdropFeatureProps) {
       </div>
       
       <p className="text-white/60 mb-6">
-        Distribute tokens to multiple recipients in a single transaction.
+        {network === 'devnet' ? 'Request test SOL on Devnet to try features.' : 'Mainnet airdrop is not implemented yet.'}
       </p>
 
       {/* Success State */}
@@ -189,7 +209,7 @@ export function AirdropFeature({ blockchain }: AirdropFeatureProps) {
             <Button 
               variant="neon"
               className="gap-2"
-              onClick={() => window.open(`https://explorer.solana.com/tx/${txId}`, '_blank')}
+              onClick={() => window.open(`https://explorer.solana.com/tx/${txId}${network==='devnet' ? '?cluster=devnet' : ''}`, '_blank')}
             >
               <ExternalLink className="w-4 h-4" />
               <span>View in Explorer</span>
@@ -198,8 +218,8 @@ export function AirdropFeature({ blockchain }: AirdropFeatureProps) {
         </motion.div>
       ) : (
         <div className="max-w-xl mx-auto">
-          {/* Progress Steps */}
-          <div className="flex items-center mb-8 relative">
+          {/* Progress Steps (hidden for faucet-only view) */}
+          <div className="hidden">
             <div className="absolute h-1 bg-white/10 top-4 left-0 right-0 -z-10"></div>
             <div 
               className="absolute h-1 bg-gradient-to-r from-pink-500 to-orange-500 top-4 left-0 -z-10 transition-all duration-500"
@@ -269,74 +289,13 @@ export function AirdropFeature({ blockchain }: AirdropFeatureProps) {
                 transition={{ duration: 0.3 }}
                 className="space-y-6 bg-white/5 backdrop-blur-xl rounded-xl border border-white/10 p-6 shadow-xl"
               >
-                <div className="relative">
-                  <label className="block text-sm font-medium mb-1">Token Address</label>
-                  <div className="relative">
-                    <Input 
-                      placeholder="Enter token address" 
-                      variant="glass" 
-                      value={tokenAddress}
-                      onChange={(e) => setTokenAddress(e.target.value)}
-                      className="pr-10"
-                    />
-                    {tokenAddress && (
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                        <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
-                          <Check className="w-3 h-3 text-white" />
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <p className="text-xs text-white/60 mt-1 flex items-center">
-                    <AlertCircle className="w-3 h-3 mr-1" />
-                    The token you want to distribute
-                  </p>
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium mb-1">Amount Per Recipient</label>
-                  <div className="relative">
-                    <Input 
-                      type="number" 
-                      placeholder="100" 
-                      variant="glass" 
-                      value={amountPerRecipient}
-                      onChange={(e) => setAmountPerRecipient(e.target.value)}
-                    />
-                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 text-sm">
-                      tokens
-                    </div>
-                  </div>
-                  <p className="text-xs text-white/60 mt-1">
-                    Each address will receive this amount of tokens
-                  </p>
-                </div>
-                
-                <div className="bg-blue-900/20 border border-blue-500/30 rounded p-3 text-blue-200 text-sm">
-                  <div className="flex items-start">
-                    <AlertCircle className="w-5 h-5 mr-2 flex-shrink-0 mt-0.5" />
-                    <p>
-                      Make sure you have enough tokens in your wallet before proceeding with the airdrop.
-                    </p>
-                  </div>
-                </div>
-                
-                <div className="flex justify-end pt-2">
-                  <Button 
-                    variant="neon" 
-                    onClick={() => setFormStep('recipients')}
-                    disabled={!tokenAddress || !amountPerRecipient}
-                    className="gap-2"
-                  >
-                    <span>Next Step</span>
-                    <ChevronRight className="w-4 h-4" />
-                  </Button>
-                </div>
+                {/* Simplified: remove token distribution config for now */}
+                <div className="text-sm text-white/70">Devnet faucet is available below. Token airdrop flow will be added later.</div>
               </motion.div>
             )}
             
             {/* Recipients Step */}
-            {formStep === 'recipients' && (
+            {false && formStep === 'recipients' && (
               <motion.div 
                 key="recipients"
                 initial={{ opacity: 0, y: 20 }}
@@ -406,7 +365,7 @@ export function AirdropFeature({ blockchain }: AirdropFeatureProps) {
                         <FileUp className="w-8 h-8 text-white/60 group-hover:text-pink-500/80 transition-colors" />
                       </div>
                       <p className="text-sm font-medium">
-                        {csvFile ? csvFile.name : 'Upload CSV file with addresses'}
+                        {csvFile?.name ?? 'Upload CSV file with addresses'}
                       </p>
                       <p className="text-xs text-white/60 mt-1">
                         CSV should have one address per line
@@ -458,7 +417,7 @@ export function AirdropFeature({ blockchain }: AirdropFeatureProps) {
             )}
             
             {/* Confirmation Step */}
-            {formStep === 'confirmation' && (
+            {false && formStep === 'confirmation' && (
               <motion.div 
                 key="confirmation"
                 initial={{ opacity: 0, y: 20 }}
@@ -547,8 +506,8 @@ export function AirdropFeature({ blockchain }: AirdropFeatureProps) {
             )}
           </AnimatePresence>
 
-          {/* Devnet faucet block (opt-in) */}
-          {network === 'devnet' && (
+          {/* Network specific rendering */}
+          {network === 'devnet' ? (
             <div className="max-w-xl mx-auto mt-6 bg-white/5 backdrop-blur-xl rounded-xl border border-white/10 p-6 shadow-xl">
               <div className="flex items-center justify-between mb-4">
                 <label className="text-sm font-medium">Enable Devnet test mode</label>
@@ -560,6 +519,9 @@ export function AirdropFeature({ blockchain }: AirdropFeatureProps) {
               </div>
               {enableDevnetFaucet && (
                 <div className="space-y-3">
+                  {!connected && (
+                    <div className="text-xs text-yellow-300">Connect Phantom to request airdrop.</div>
+                  )}
                   <div>
                     <label className="block text-sm mb-1">Request SOL amount (Devnet)</label>
                     <Input
@@ -568,19 +530,37 @@ export function AirdropFeature({ blockchain }: AirdropFeatureProps) {
                       onChange={(e) => setDevnetSolAmount(e.target.value)}
                       placeholder="1"
                     />
-                    <p className="text-xs text-white/60 mt-1">Funds are test-only on Devnet</p>
+                    <p className="text-xs text-white/60 mt-1">Funds are test-only on Devnet. If you don't see funds in Phantom, switch wallet to Devnet.</p>
+                    {newBalanceLamports !== null && (
+                      <p className="text-xs text-green-400 mt-1">New balance: {(newBalanceLamports / web3.LAMPORTS_PER_SOL).toFixed(3)} SOL</p>
+                    )}
+                    {cooldownUntil && Date.now() < cooldownUntil && (
+                      <p className="text-xs text-white/60 mt-1">Cooldown active. Try again in {Math.max(0, Math.ceil((cooldownUntil - Date.now())/1000))}s.</p>
+                    )}
                   </div>
                   <Button 
                     variant="outline"
                     className="gap-2"
                     onClick={handleRequestDevnetAirdrop}
-                    disabled={!publicKey || !devnetSolAmount || isNaN(Number(devnetSolAmount)) || Number(devnetSolAmount) <= 0 || Number(devnetSolAmount) > 2}
+                    disabled={!publicKey || !connected || !devnetSolAmount || isNaN(Number(devnetSolAmount)) || Number(devnetSolAmount) <= 0 || Number(devnetSolAmount) > 2 || (cooldownUntil !== null && Date.now() < cooldownUntil)}
                   >
                     <Zap className="w-4 h-4" />
                     <span>Get Devnet SOL Airdrop</span>
                   </Button>
                 </div>
               )}
+            </div>
+          ) : (
+            <div className="max-w-xl mx-auto mt-6 bg-white/5 backdrop-blur-xl rounded-xl border border-white/10 p-6 shadow-xl">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Mainnet Airdrop</p>
+                  <p className="text-xs text-white/60">Not implemented</p>
+                </div>
+                <Button variant="outline" disabled>
+                  Coming soon
+                </Button>
+              </div>
             </div>
           )}
         </div>
