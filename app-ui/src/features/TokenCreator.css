@@ -1,0 +1,21 @@
+.input-wrapper {
+    position: relative;
+    width: 100%;
+}
+
+.textbox-icon {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 10;
+    pointer-events: none;
+}
+
+.input-with-icon {
+    padding-left: 40px !important;
+}
+
+.input-without-icon {
+    padding-left: 12px;
+}

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Create and manage tokens on Solana, TON, and TRON blockchains with CryptoCraft's easy-to-use interface.">
+    <title>CryptoCraft - Create Tokens on Solana and other blockchains</title>
+    <!-- EventEmitter fix script - must be loaded first -->
+    <script src="/eventemitter-fix.js"></script>
+    <!-- Direct polyfills - no dynamic imports -->
+    <script>
+      // Simple Buffer polyfill implementation
+      function BufferPolyfill(arg, encodingOrOffset, length) {
+        // Basic implementation
+        if (!(this instanceof BufferPolyfill)) return new BufferPolyfill(arg, encodingOrOffset, length);
+        
+        this._isBuffer = true;
+        this._arr = Array.isArray(arg) ? arg.slice() : 
+                   (typeof arg === 'number' ? new Array(arg).fill(0) : 
+                   (typeof arg === 'string' ? Array.from(arg).map(c => c.charCodeAt(0)) : []));
+      }
+      
+      BufferPolyfill.prototype.toString = function() {
+        return String.fromCharCode.apply(null, this._arr || []);
+      };
+      
+      // Static methods
+      BufferPolyfill.isBuffer = function(b) { return !!(b && b._isBuffer); };
+      BufferPolyfill.from = function(array, encodingOrOffset, length) {
+        return new BufferPolyfill(array, encodingOrOffset, length);
+      };
+      BufferPolyfill.alloc = function(size, fill, encoding) {
+        const buf = new BufferPolyfill(size);
+        return buf;
+      };
+      BufferPolyfill.allocUnsafe = function(size) {
+        return new BufferPolyfill(size);
+      };
+      
+      // Ensure Buffer is globally available
+      window.Buffer = BufferPolyfill;
+      globalThis.Buffer = BufferPolyfill;
+      
+      // Other polyfills
+      window.global = window;
+      globalThis.global = window;
+      
+      // Process polyfill
+      window.process = { env: {}, browser: true };
+      globalThis.process = window.process;
+      
+      // BN.js polyfill
+      class BN {
+        constructor(value, base) {
+          this.value = typeof value === 'number' ? String(value) : 
+                      typeof value === 'string' ? value :
+                      value instanceof BN ? value.value :
+                      Array.isArray(value) ? Array.from(value).join('') :
+                      '0';
+          
+          // Handle base conversion for string inputs
+          if (typeof value === 'string' && base) {
+            try {
+              this.value = parseInt(value, base).toString();
+            } catch (e) {
+              this.value = '0';
+            }
+          }
+        }
+        
+        toString(base) {
+          if (base === 10 || !base) return this.value;
+          try {
+            return parseInt(this.value).toString(base);
+          } catch (e) {
+            return '0';
+          }
+        }
+        
+        toNumber() {
+          try {
+            return Number(this.value);
+          } catch (e) {
+            return 0;
+          }
+        }
+        
+        toJSON() {
+          return this.value;
+        }
+      }
+      
+      BN.isBN = function(obj) {
+        return obj instanceof BN;
+      };
+      
+      // Make BN globally available
+      window.BN = BN;
+      globalThis.BN = BN;
+    </script>
+    <style>
+      :root {
+        --background: 222.2 84% 4.9%;
+        --foreground: 210 40% 98%;
+        --card: 222.2 84% 4.9%;
+        --card-foreground: 210 40% 98%;
+        --popover: 222.2 84% 4.9%;
+        --popover-foreground: 210 40% 98%;
+        --primary: 217.2 91.2% 59.8%;
+        --primary-foreground: 222.2 47.4% 11.2%;
+        --secondary: 217.2 32.6% 17.5%;
+        --secondary-foreground: 210 40% 98%;
+        --muted: 217.2 32.6% 17.5%;
+        --muted-foreground: 215 20.2% 65.1%;
+        --accent: 217.2 32.6% 17.5%;
+        --accent-foreground: 210 40% 98%;
+        --destructive: 0 62.8% 30.6%;
+        --destructive-foreground: 210 40% 98%;
+        --border: 217.2 32.6% 17.5%;
+        --input: 217.2 32.6% 17.5%;
+        --ring: 224.3 76.3% 48%;
+        --radius: 0.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
