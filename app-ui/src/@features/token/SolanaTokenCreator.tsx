@@ -6,7 +6,8 @@ import { motion } from 'framer-motion';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Connection, PublicKey, clusterApiUrl } from '@solana/web3.js';
 import { Upload, X, Image as ImageIcon, Check } from 'lucide-react';
-import { uploadFileToPinata } from "../../components/connect_to_ipfs";
+// import { uploadFileToPinata } from "../../components/connect_to_ipfs";
+import { uploadFileToMedia } from "../../components/connect_to_ipfs";
 import { upload as pinJsonViaBackend } from "../../components/connect_to_ipfs";
 import { unpinFromPinata } from "../../components/connect_to_ipfs";
 import { useTokenApi } from '../../hooks/useApi';
@@ -39,13 +40,13 @@ interface SolanaTokenCreatorProps {
 
 export function SolanaTokenCreator({
   setNotification,
-  networkType: _networkType,
+  networkType,
   formData,
   setFormData,
 }: SolanaTokenCreatorProps) {
   const [isConnected, setIsConnected] = useState(false);
   const [address, setAddress] = useState<string>('');
-  // Removed explorer link duplication; we only provide copy address CTA
+  // Explorer links shown on success alongside copy address CTA
   const { createToken, createUpdateMetadataTx, submitSigned, loading: creating } = useTokenApi();
 
   // UI state
@@ -298,13 +299,13 @@ export function SolanaTokenCreator({
     if (!logoFile) return logoIpfsHash;
     setUploadingLogo(true);
     try {
-      const res = await uploadFileToPinata(logoFile);
-      const cid = res?.IpfsHash as string | undefined;
-      if (cid) {
-        setLogoIpfsHash(cid);
-        return cid;
-      }
-      return null;
+      // 1) Upload to MinIO to get stable HTTPS URL
+      const media = await uploadFileToMedia(logoFile);
+      const httpsUrl = media.imageUrl as string;
+      // 2) Pin JSON later will embed this httpsUrl in metadata.image
+      // For backward compatibility we can also pin the raw image to Pinata if needed downstream
+      setLogoIpfsHash(httpsUrl);
+      return httpsUrl;
     } catch (_e) {
       return null;
     } finally {
@@ -347,8 +348,8 @@ export function SolanaTokenCreator({
 
     try {
       // Ensure logo is uploaded automatically before building transaction
-      const cid = await uploadLogoIfNeeded();
-      const link = cid ? `https://gateway.pinata.cloud/ipfs/${cid}` : '';
+      const httpsUrl = await uploadLogoIfNeeded();
+      const link = httpsUrl || '';
 
       const result = await createToken({
         name: formData.tokenName,
@@ -434,7 +435,7 @@ export function SolanaTokenCreator({
           name: (updateName || 'UPDATED NAME').slice(0, 32),
           symbol: (updateSymbol || 'SYM').slice(0, 10),
           description: '',
-          image: logoIpfsHash ? `https://gateway.pinata.cloud/ipfs/${logoIpfsHash}` : '',
+          image: logoIpfsHash || '',
           properties: { category: 'token' }
         };
         console.log('[UpdateFlow] Auto pin metadata JSON', meta);
@@ -537,18 +538,45 @@ export function SolanaTokenCreator({
                   {createdTokenAddress}
                 </div>
               </div>
-              <Button
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button
                   variant="outline"
                   size="sm"
-                  className="mt-3 bg-green-900/30 border-green-700/50 hover:bg-green-800/40"
+                  className="bg-green-900/30 border-green-700/50 hover:bg-green-800/40"
                   onClick={() => {
                     navigator.clipboard.writeText(createdTokenAddress);
                     setNotification({ message: 'Token address copied to clipboard', type: 'success' });
                   }}
-              >
-                COPY ADDRESS
-              </Button>
-              {/* Explorer links removed per UX: single clear CTA to copy address */}
+                >
+                  COPY ADDRESS
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="bg-green-900/30 border-green-700/50 hover:bg-green-800/40"
+                  onClick={() => {
+                    const q = networkType === 'devnet' ? '?cluster=devnet' : '';
+                    const url = `https://solscan.io/token/${createdTokenAddress}${q}`;
+                    const w = window.open(url, '_blank', 'noopener');
+                    if (w) w.opener = null;
+                  }}
+                >
+                  OPEN IN SOLSCAN
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="bg-green-900/30 border-green-700/50 hover:bg-green-800/40"
+                  onClick={() => {
+                    const q = networkType === 'devnet' ? '?cluster=devnet' : '';
+                    const url = `https://explorer.solana.com/address/${createdTokenAddress}${q}`;
+                    const w = window.open(url, '_blank', 'noopener');
+                    if (w) w.opener = null;
+                  }}
+                >
+                  OPEN IN EXPLORER
+                </Button>
+              </div>
             </motion.div>
         )}
 

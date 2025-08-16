@@ -40,7 +40,7 @@ export function AirdropFeature({ blockchain }: AirdropFeatureProps) {
   const [enableDevnetFaucet, setEnableDevnetFaucet] = useState(false);
   const [devnetSolAmount, setDevnetSolAmount] = useState<string>('1');
   const [cooldownUntil, setCooldownUntil] = useState<number | null>(null);
-  const [newBalanceLamports, setNewBalanceLamports] = useState<number | null>(null);
+  const [newBalanceLamports] = useState<number | null>(null);
 
   const { network } = useNetwork();
   const { connection } = useConnection();

@@ -45,6 +45,25 @@ export async function uploadFileToPinata(file: File) {
     return await res.json();
 }
 
+// Upload a file (e.g., logo image) to Media (MinIO) via backend
+export async function uploadFileToMedia(file: File) {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/api/media/upload', {
+        method: 'POST',
+        body: form
+    });
+    if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`Failed to upload media (${res.status}). ${text}`);
+    }
+    const body = await res.json();
+    if (!body?.success || !body?.imageUrl) {
+        throw new Error('Media upload did not return imageUrl');
+    }
+    return body as { success: boolean; imageUrl: string; bucket: string; object: string };
+}
+
 // Unpin an existing CID from Pinata via backend
 export async function unpinFromPinata(cid: string) {
     const res = await fetch(`/api/ipfs/unpin/${encodeURIComponent(cid)}`, {

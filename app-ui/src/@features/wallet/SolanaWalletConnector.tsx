@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Button } from '../../components/ui/button';
 import { motion } from 'framer-motion';
 // Reown removed. Use Phantom directly for connect/sign & raw RPC for balances.
@@ -26,7 +26,7 @@ export const SolanaWalletConnector = React.memo(function SolanaWalletConnector({
                                                                                    networkType,
                                                                                    setNotification,
                                                                                }: SolanaWalletConnectorProps) {
-    const { /* ready,*/ connected: isConnected, connecting: isConnecting, address, connect } = usePhantomWallet()
+    const { /* ready,*/ connected: isConnected, connecting: isConnecting, address, connect, disconnect } = usePhantomWallet()
     const [connection, setConnection] = useState<Connection | null>(null)
 
     useEffect(() => {
@@ -38,10 +38,27 @@ export const SolanaWalletConnector = React.memo(function SolanaWalletConnector({
     }, [networkType])
 
     // Provider lifecycle handled in usePhantomWallet
-    const { token, authenticate, loading } = useAuth();
+    const { token, authenticate, loading, logout } = useAuth();
+    const lastAuthForAddressRef = useRef<string | null>(null)
 
-    // Respect explicit user action for auth: connect first, then user clicks "Sign In"
-    // Removed auto sign-in to enforce correct flow
+    // Auto sign-in after wallet connect (only once per address per session)
+    useEffect(() => {
+        if (isConnected && address && !token && !loading) {
+            if (lastAuthForAddressRef.current !== address) {
+                lastAuthForAddressRef.current = address
+                authenticate(address)
+                    .then(() => setNotification({ message: 'Signed in successfully', type: 'success' }))
+                    .catch((e: any) => setNotification({ message: e?.message || 'Auth failed', type: 'error' }))
+            }
+        }
+    }, [isConnected, address, token, loading, authenticate, setNotification])
+
+    // Auto logout on disconnect
+    useEffect(() => {
+        if (!isConnected && token) {
+            logout()
+        }
+    }, [isConnected, token, logout])
 
     const publicKey = useMemo(() => (address ? new PublicKey(address) : null), [address]);
 
@@ -123,22 +140,21 @@ export const SolanaWalletConnector = React.memo(function SolanaWalletConnector({
                         if (isConnected || isConnecting) return;
                         await connect();
                     }} disabled={isConnected || isConnecting}> {isConnected ? 'Connected' : (isConnecting ? 'Connecting…' : 'Connect Phantom')} </Button>
-                    {isConnected && address && (
+                    {isConnected && (
                         <Button
                             size="sm"
-                            variant={token ? 'secondary' : 'default'}
+                            variant="secondary"
                             className="mt-2"
                             onClick={async () => {
                                 try {
-                                    await authenticate(address)
-                                    setNotification({ message: 'Signed in successfully', type: 'success' })
-                                } catch (e: any) {
-                                    setNotification({ message: e?.message || 'Auth failed', type: 'error' })
+                                    await disconnect()
+                                } finally {
+                                    logout()
+                                    setNotification({ message: 'Disconnected', type: 'success' })
                                 }
                             }}
-                            disabled={!!token || loading}
                         >
-                            {token ? 'Signed In' : loading ? 'Signing…' : 'Sign In'}
+                            Disconnect
                         </Button>
                     )}
                     {isConnected && publicKey && (
